@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+
+{% block title %}Velib Tracker - Stations{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <h2>Velib Stations</h2>
+            
+            <!-- Search -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <input type="text" class="form-control" id="searchInput" placeholder="Search stations by name...">
+                        </div>
+                        <div class="col-md-3">
+                            <select class="form-select" id="statusFilter">
+                                <option value="">All Stations</option>
+                                <option value="empty">Empty Stations</option>
+                                <option value="full">Full Stations</option>
+                                <option value="low">Low Availability</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-primary" onclick="loadStations()">Search</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Stations List -->
+            <div id="stationsList">
+                <p>Loading stations...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function loadStations() {
+    const search = document.getElementById('searchInput').value;
+    const filter = document.getElementById('statusFilter').value;
+    
+    try {
+        let response;
+        if (search) {
+            response = await fetch(`/api/stations/search?q=${encodeURIComponent(search)}`);
+        } else {
+            response = await fetch('/api/stations');
+        }
+        
+        const data = await response.json();
+        let stations = data.stations;
+        
+        // Apply client-side filters
+        if (filter) {
+            stations = stations.filter(station => {
+                const totalBikes = station.nb_bike + station.nb_ebike;
+                const totalDocks = station.nb_free_dock + station.nb_free_edock;
+                const fillRate = totalBikes / station.total_capacity;
+                
+                switch (filter) {
+                    case 'empty': return totalBikes === 0;
+                    case 'full': return totalDocks === 0;
+                    case 'low': return fillRate < 0.2 && totalBikes > 0;
+                    default: return true;
+                }
+            });
+        }
+        
+        // Store stations globally for sorting
+        allStations = stations;
+        displayStationsTable(stations);
+    } catch (error) {
+        console.error('Error loading stations:', error);
+        document.getElementById('stationsList').innerHTML = '<p class="text-danger">Error loading stations</p>';
+    }
+}
+
+
+let currentSort = { column: '', direction: 'asc' };
+let allStations = [];
+
+function addSortListeners() {
+    document.querySelectorAll('.sortable').forEach(header => {
+        header.addEventListener('click', () => {
+            const sortBy = header.dataset.sort;
+            
+            // Toggle direction if same column, otherwise default to asc
+            if (currentSort.column === sortBy) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.direction = 'asc';
+            }
+            currentSort.column = sortBy;
+            
+            // Update sort icons
+            updateSortIcons(header, currentSort.direction);
+            
+            // Sort and redisplay
+            const sortedStations = sortStations(allStations, sortBy, currentSort.direction);
+            displayStationsTable(sortedStations);
+        });
+    });
+}
+
+function updateSortIcons(activeHeader, direction) {
+    // Reset all icons
+    document.querySelectorAll('.sort-icon').forEach(icon => {
+        icon.className = 'fas fa-sort sort-icon';
+    });
+    
+    // Set active icon
+    const activeIcon = activeHeader.querySelector('.sort-icon');
+    activeIcon.className = `fas fa-sort-${direction === 'asc' ? 'up' : 'down'} sort-icon`;
+}
+
+function sortStations(stations, sortBy, direction) {
+    return [...stations].sort((a, b) => {
+        let aVal, bVal;
+        
+        switch (sortBy) {
+            case 'name':
+                aVal = a.name.toLowerCase();
+                bVal = b.name.toLowerCase();
+                break;
+            case 'code':
+                aVal = a.code;
+                bVal = b.code;
+                break;
+            case 'mechanical':
+                aVal = a.nb_bike;
+                bVal = b.nb_bike;
+                break;
+            case 'electric':
+                aVal = a.nb_ebike;
+                bVal = b.nb_ebike;
+                break;
+            case 'free_docks':
+                aVal = a.nb_free_dock + a.nb_free_edock;
+                bVal = b.nb_free_dock + b.nb_free_edock;
+                break;
+            case 'capacity':
+                aVal = a.total_capacity;
+                bVal = b.total_capacity;
+                break;
+            case 'fill_rate':
+                aVal = (a.nb_bike + a.nb_ebike) / a.total_capacity;
+                bVal = (b.nb_bike + b.nb_ebike) / b.total_capacity;
+                break;
+            default:
+                return 0;
+        }
+        
+        if (typeof aVal === 'string') {
+            return direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        } else {
+            return direction === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+    });
+}
+
+function displayStationsTable(stations) {
+    const container = document.getElementById('stationsList');
+    
+    if (stations.length === 0) {
+        container.innerHTML = '<p>No stations found</p>';
+        return;
+    }
+    
+    let html = `
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th class="sortable" data-sort="name">
+                            Name <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th class="sortable" data-sort="code">
+                            Code <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th class="sortable" data-sort="mechanical">
+                            Mechanical <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th class="sortable" data-sort="electric">
+                            Electric <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th class="sortable" data-sort="free_docks">
+                            Free Docks <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th class="sortable" data-sort="capacity">
+                            Capacity <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th class="sortable" data-sort="fill_rate">
+                            Fill Rate <i class="fas fa-sort sort-icon"></i>
+                        </th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    stations.forEach(station => {
+        const totalBikes = station.nb_bike + station.nb_ebike;
+        const fillRate = ((totalBikes / station.total_capacity) * 100).toFixed(1);
+        const fillRateClass = totalBikes === 0 ? 'danger' : 
+                             (station.nb_free_dock + station.nb_free_edock) === 0 ? 'warning' : 
+                             fillRate < 20 ? 'info' : 'success';
+        
+        html += `
+            <tr>
+                <td><strong>${station.name}</strong></td>
+                <td>${station.code}</td>
+                <td>
+                    <span class="badge bg-primary">${station.nb_bike}</span>
+                </td>
+                <td>
+                    <span class="badge bg-success">${station.nb_ebike}</span>
+                </td>
+                <td>${station.nb_free_dock + station.nb_free_edock}</td>
+                <td>${station.total_capacity}</td>
+                <td>
+                    <div class="progress" style="height: 20px;">
+                        <div class="progress-bar bg-${fillRateClass}" style="width: ${fillRate}%">
+                            ${fillRate}%
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <a href="/stations/${station.code}" class="btn btn-sm btn-primary">View</a>
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = html;
+    addSortListeners();
+}
+
+// Search on Enter key
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('searchInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            loadStations();
+        }
+    });
+    
+    // Load stations on page load
+    loadStations();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Velib Tracker - Map{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+    <div class="row g-0">
+        <!-- Sidebar -->
+        <div class="col-md-3" id="sidebar">
+            <div class="p-3">
+                <h5>Filters</h5>
+                
+                <!-- Station Filters -->
+                <div class="mb-3">
+                    <h6>Stations</h6>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showStations" checked>
+                        <label class="form-check-label" for="showStations">
+                            Show Stations
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showEmptyStations">
+                        <label class="form-check-label" for="showEmptyStations">
+                            Empty Stations Only
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showFullStations">
+                        <label class="form-check-label" for="showFullStations">
+                            Full Stations Only
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Bike Filters -->
+                <div class="mb-3">
+                    <h6>Bikes</h6>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showInTransit">
+                        <label class="form-check-label" for="showInTransit">
+                            Show In Transit
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="showMalfunctions">
+                        <label class="form-check-label" for="showMalfunctions">
+                            Malfunctioning Only
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Statistics Panel -->
+                <div class="stats-panel mt-4">
+                    <h6>Live Statistics</h6>
+                    <div id="liveStats" class="small">
+                        <p>Loading...</p>
+                    </div>
+                </div>
+                
+                <!-- Selected Item Info -->
+                <div class="selected-info mt-4" id="selectedInfo" style="display: none;">
+                    <h6>Selected Item</h6>
+                    <div id="selectedContent"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Map -->
+        <div class="col-md-9">
+            <div id="map" style="height: calc(100vh - 56px);"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="loading-overlay">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/map.js') }}"></script>
+{% endblock %}

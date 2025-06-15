@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block title %}Velib Tracker - Statistics{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <h2>System Statistics</h2>
+            
+            <!-- Overview Cards -->
+            <div class="row mb-4" id="overviewStats">
+                <div class="col-12">
+                    <p>Loading statistics...</p>
+                </div>
+            </div>
+            
+            <!-- System Health -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-heartbeat"></i> System Health</h5>
+                        </div>
+                        <div class="card-body" id="healthStats">
+                            <p>Loading health metrics...</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-exclamation-triangle"></i> Malfunction Summary</h5>
+                        </div>
+                        <div class="card-body" id="malfunctionStats">
+                            <p>Loading malfunction data...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Hourly Activity Chart -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="fas fa-chart-bar"></i> Hourly Activity Pattern (Last 7 Days)</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="hourlyChart" width="400" height="200"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let hourlyChart = null;
+
+async function loadOverviewStats() {
+    try {
+        const response = await fetch('/api/statistics/overview');
+        const data = await response.json();
+        
+        const html = `
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3 class="text-primary">${data.total_bikes}</h3>
+                    <p>Total Bikes</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3 class="text-success">${data.bike_status.disponible || 0}</h3>
+                    <p>Available Bikes</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3 class="text-warning">${data.bike_status.in_transit || 0}</h3>
+                    <p>In Transit</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h3 class="text-info">${data.trips_today}</h3>
+                    <p>Trips Today</p>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('overviewStats').innerHTML = html;
+    } catch (error) {
+        console.error('Error loading overview stats:', error);
+    }
+}
+
+async function loadHealthStats() {
+    try {
+        const response = await fetch('/api/statistics/system-health');
+        const data = await response.json();
+        
+        const html = `
+            <div class="row text-center">
+                <div class="col-md-6">
+                    <div class="stat-card">
+                        <h3 class="text-${data.health_score >= 80 ? 'success' : data.health_score >= 60 ? 'warning' : 'danger'}">
+                            ${data.health_score}%
+                        </h3>
+                        <p>Health Score</p>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="stat-card">
+                        <h3 class="text-success">${data.availability_rate}%</h3>
+                        <p>Availability Rate</p>
+                    </div>
+                </div>
+            </div>
+            <div class="row text-center mt-3">
+                <div class="col-md-6">
+                    <div class="stat-card">
+                        <h3 class="text-warning">${data.malfunction_rate}%</h3>
+                        <p>Malfunction Rate</p>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="stat-card">
+                        <h3 class="text-danger">${data.missing_rate}%</h3>
+                        <p>Missing Rate</p>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('healthStats').innerHTML = html;
+    } catch (error) {
+        console.error('Error loading health stats:', error);
+    }
+}
+
+async function loadMalfunctionStats() {
+    try {
+        const response = await fetch('/api/statistics/malfunction-summary');
+        const data = await response.json();
+        
+        let html = `
+            <div class="mb-3">
+                <h6>Recent Detections (24h): <span class="badge bg-primary">${data.recent_detections_24h}</span></h6>
+            </div>
+        `;
+        
+        if (data.malfunction_types.length > 0) {
+            html += '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Type</th><th>Count</th><th>Avg Severity</th></tr></thead><tbody>';
+            
+            data.malfunction_types.forEach(type => {
+                html += `
+                    <tr>
+                        <td><span class="malfunction-badge ${type.type}">${type.type}</span></td>
+                        <td>${type.count}</td>
+                        <td>${type.avg_severity}/5</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table></div>';
+        } else {
+            html += '<p class="text-success">No active malfunctions detected!</p>';
+        }
+        
+        document.getElementById('malfunctionStats').innerHTML = html;
+    } catch (error) {
+        console.error('Error loading malfunction stats:', error);
+    }
+}
+
+async function loadHourlyActivity() {
+    try {
+        const response = await fetch('/api/statistics/hourly-activity');
+        const data = await response.json();
+        
+        const ctx = document.getElementById('hourlyChart').getContext('2d');
+        
+        if (hourlyChart) {
+            hourlyChart.destroy();
+        }
+        
+        hourlyChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.hourly_activity.map(h => `${h.hour}:00`),
+                datasets: [{
+                    label: 'Trips',
+                    data: data.hourly_activity.map(h => h.trip_count),
+                    backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error loading hourly activity:', error);
+    }
+}
+
+// Load all statistics on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadOverviewStats();
+    loadHealthStats();
+    loadMalfunctionStats();
+    loadHourlyActivity();
+    
+    // Refresh every 30 seconds
+    setInterval(() => {
+        loadOverviewStats();
+        loadHealthStats();
+        loadMalfunctionStats();
+    }, 30000);
+});
+</script>
+{% endblock %}

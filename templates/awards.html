@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}Velib Tracker - Awards{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row">
+        <div class="col-12">
+            <h2><i class="fas fa-trophy"></i> Velib Awards</h2>
+            <p class="lead">Discover the most interesting statistics and achievements in the Velib system!</p>
+            
+            <!-- Time Period Selector -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-6">
+                            <h5>Time Period</h5>
+                        </div>
+                        <div class="col-md-6">
+                            <select class="form-select" id="periodSelect">
+                                <option value="1">Last 24 Hours</option>
+                                <option value="7" selected>Last 7 Days</option>
+                                <option value="30">Last 30 Days</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Awards Grid -->
+            <div id="awardsGrid">
+                <p>Loading awards...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function loadAwards() {
+    const days = document.getElementById('periodSelect').value;
+    
+    try {
+        const response = await fetch(`/api/statistics/awards?days=${days}`);
+        const data = await response.json();
+        
+        displayAwards(data);
+    } catch (error) {
+        console.error('Error loading awards:', error);
+        document.getElementById('awardsGrid').innerHTML = '<p class="text-danger">Error loading awards</p>';
+    }
+}
+
+function displayAwards(data) {
+    const awards = [
+        {
+            title: "Most Active Bike",
+            icon: "fas fa-bicycle",
+            value: data.most_used_bike?.bike_name || "N/A",
+            detail: data.most_used_bike?.trip_count ? `${data.most_used_bike.trip_count} trips` : "No data",
+            gradient: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+        },
+        {
+            title: "Longest Journey",
+            icon: "fas fa-route",
+            value: data.longest_trip?.distance ? `${data.longest_trip.distance} km` : "N/A",
+            detail: data.longest_trip?.bike_name ? `Bike ${data.longest_trip.bike_name}` : "No data",
+            gradient: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)"
+        },
+        {
+            title: "Speed Champion",
+            icon: "fas fa-tachometer-alt",
+            value: data.fastest_bike?.avg_speed ? `${data.fastest_bike.avg_speed} km/h` : "N/A",
+            detail: data.fastest_bike?.bike_name ? `Bike ${data.fastest_bike.bike_name}` : "No data",
+            gradient: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"
+        },
+        {
+            title: "Boomerang King",
+            icon: "fas fa-undo",
+            value: data.most_boomeranged?.boomerang_count || "0",
+            detail: data.most_boomeranged?.bike_name ? `Bike ${data.most_boomeranged.bike_name}` : "No boomerangs",
+            gradient: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)"
+        },
+        {
+            title: "Busiest Station",
+            icon: "fas fa-map-marker-alt",
+            value: data.busiest_station?.name || "N/A",
+            detail: data.busiest_station?.activity_count ? `${data.busiest_station.activity_count} activities` : "No data",
+            gradient: "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)"
+        },
+        {
+            title: "Duration Record",
+            icon: "fas fa-clock",
+            value: data.longest_trip?.duration ? formatDuration(data.longest_trip.duration) : "N/A",
+            detail: data.longest_trip?.date ? new Date(data.longest_trip.date).toLocaleDateString() : "No data",
+            gradient: "linear-gradient(135deg, #d299c2 0%, #fef9d7 100%)"
+        }
+    ];
+    
+    let html = '<div class="row">';
+    
+    awards.forEach((award, index) => {
+        html += `
+            <div class="col-md-6 col-lg-4 mb-4">
+                <div class="award-card" style="background: ${award.gradient};">
+                    <div class="award-icon">
+                        <i class="${award.icon}"></i>
+                    </div>
+                    <div class="award-title">${award.title}</div>
+                    <div class="award-value">${award.value}</div>
+                    <div class="mt-2">
+                        <small>${award.detail}</small>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    
+    // Add some fun facts
+    html += `
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-lightbulb"></i> Fun Facts (${data.period_days} days)</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <ul class="list-unstyled">
+                                    ${data.longest_trip ? `<li><i class="fas fa-star text-warning"></i> The longest trip covered <strong>${data.longest_trip.distance} km</strong> in ${formatDuration(data.longest_trip.duration)}</li>` : ''}
+                                    ${data.fastest_bike ? `<li><i class="fas fa-star text-warning"></i> Top speed achieved: <strong>${data.fastest_bike.avg_speed} km/h</strong> average</li>` : ''}
+                                    ${data.most_boomeranged ? `<li><i class="fas fa-star text-warning"></i> One bike returned to the same station <strong>${data.most_boomeranged.boomerang_count} times</strong></li>` : ''}
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <ul class="list-unstyled">
+                                    ${data.most_used_bike ? `<li><i class="fas fa-star text-warning"></i> Most active bike completed <strong>${data.most_used_bike.trip_count} trips</strong></li>` : ''}
+                                    ${data.busiest_station ? `<li><i class="fas fa-star text-warning"></i> Busiest station had <strong>${data.busiest_station.activity_count} activities</strong></li>` : ''}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('awardsGrid').innerHTML = html;
+}
+
+function formatDuration(seconds) {
+    if (!seconds) return '0m';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    
+    if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
+}
+
+// Load awards on page load and when period changes
+document.addEventListener('DOMContentLoaded', () => {
+    loadAwards();
+    
+    document.getElementById('periodSelect').addEventListener('change', loadAwards);
+});
+</script>
+{% endblock %}

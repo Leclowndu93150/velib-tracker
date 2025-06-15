@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+
+{% block title %}Velib Tracker - Station {{ station_code }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="/">Home</a></li>
+                    <li class="breadcrumb-item"><a href="/stations">Stations</a></li>
+                    <li class="breadcrumb-item active">{{ station_code }}</li>
+                </ol>
+            </nav>
+            
+            <h2>Station {{ station_code }}</h2>
+            
+            <div id="stationDetails">
+                <p>Loading station details...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const stationCode = '{{ station_code }}';
+
+async function loadStationDetails() {
+    try {
+        const response = await fetch(`/api/stations/${stationCode}`);
+        const station = await response.json();
+        
+        if (station.error) {
+            document.getElementById('stationDetails').innerHTML = 
+                `<div class="alert alert-danger">${station.error}</div>`;
+            return;
+        }
+        
+        displayStationDetails(station);
+    } catch (error) {
+        console.error('Error loading station details:', error);
+        document.getElementById('stationDetails').innerHTML = 
+            '<div class="alert alert-danger">Error loading station details</div>';
+    }
+}
+
+function displayStationDetails(station) {
+    const totalBikes = station.nb_bike + station.nb_ebike;
+    const fillRate = ((totalBikes / station.total_capacity) * 100).toFixed(1);
+    
+    const html = `
+        <div class="row">
+            <div class="col-md-8">
+                <!-- Basic Info -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-map-marker-alt"></i> ${station.name}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p><strong>Code:</strong> ${station.code}</p>
+                                <p><strong>Type:</strong> ${station.station_type}</p>
+                                <p><strong>State:</strong> 
+                                   <span class="badge bg-${station.state === 'Operative' ? 'success' : 'warning'}">
+                                       ${station.state}
+                                   </span>
+                                </p>
+                                <p><strong>Credit Card:</strong> ${station.credit_card ? 'Yes' : 'No'}</p>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong>Coordinates:</strong> ${station.latitude.toFixed(6)}, ${station.longitude.toFixed(6)}</p>
+                                <p><strong>Last Updated:</strong> ${new Date(station.updated_at).toLocaleString()}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Current Status -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-bicycle"></i> Current Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <h3 class="text-primary">${station.nb_bike}</h3>
+                                    <p>Mechanical Bikes</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <h3 class="text-success">${station.nb_ebike}</h3>
+                                    <p>Electric Bikes</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <h3 class="text-info">${station.nb_free_dock + station.nb_free_edock}</h3>
+                                    <p>Free Docks</p>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card">
+                                    <h3 class="text-secondary">${station.total_capacity}</h3>
+                                    <p>Total Capacity</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <h6>Fill Rate: ${fillRate}%</h6>
+                            <div class="progress" style="height: 25px;">
+                                <div class="progress-bar bg-${totalBikes === 0 ? 'danger' : 
+                                                              (station.nb_free_dock + station.nb_free_edock) === 0 ? 'warning' : 
+                                                              fillRate < 20 ? 'info' : 'success'}" 
+                                     style="width: ${fillRate}%">
+                                    ${fillRate}%
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Activity Stats -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-chart-line"></i> 24h Activity</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-md-4">
+                                <div class="stat-card">
+                                    <h3 class="text-primary">${station.activity_24h ? station.activity_24h.departures : 0}</h3>
+                                    <p>Departures</p>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="stat-card">
+                                    <h3 class="text-success">${station.activity_24h ? station.activity_24h.arrivals : 0}</h3>
+                                    <p>Arrivals</p>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="stat-card">
+                                    <h3 class="text-info">${station.activity_24h ? station.activity_24h.turnover_rate.toFixed(2) : 0}</h3>
+                                    <p>Turnover Rate</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Current Bikes -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-list"></i> Current Bikes (${station.current_bikes ? station.current_bikes.length : 0})</h5>
+                    </div>
+                    <div class="card-body">
+                        ${station.current_bikes && station.current_bikes.length > 0 ? `
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Bike ID</th>
+                                            <th>Type</th>
+                                            <th>Status</th>
+                                            <th>Trips</th>
+                                            <th>Distance</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${station.current_bikes.map(bike => `
+                                            <tr class="${bike.potential_malfunction ? 'table-warning' : ''}">
+                                                <td>${bike.bike_name}</td>
+                                                <td>
+                                                    ${bike.bike_electric ? 
+                                                        '<span class="badge bg-success">Electric</span>' : 
+                                                        '<span class="badge bg-primary">Mechanical</span>'}
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-${bike.current_status === 'disponible' ? 'success' : 'warning'}">
+                                                        ${bike.current_status}
+                                                    </span>
+                                                    ${bike.potential_malfunction ? 
+                                                        '<i class="fas fa-exclamation-triangle text-warning ms-1" title="Potential malfunction"></i>' : ''}
+                                                </td>
+                                                <td>${bike.total_trips}</td>
+                                                <td>${bike.total_distance} km</td>
+                                                <td>
+                                                    <a href="/bikes/${bike.bike_name}" class="btn btn-sm btn-primary">View</a>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ` : '<p>No bikes currently at this station</p>'}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Map Sidebar -->
+            <div class="col-md-4">
+                <div class="card sticky-top">
+                    <div class="card-header">
+                        <h5><i class="fas fa-map"></i> Location</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="stationMap" style="height: 300px;"></div>
+                        <div class="mt-3">
+                            <p><strong>Address:</strong> Near ${station.latitude.toFixed(4)}, ${station.longitude.toFixed(4)}</p>
+                            <a href="https://www.google.com/maps?q=${station.latitude},${station.longitude}" 
+                               target="_blank" class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-external-link-alt"></i> Open in Google Maps
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('stationDetails').innerHTML = html;
+    
+    // Initialize map after content is loaded
+    initStationMap(station);
+}
+
+function initStationMap(station) {
+    // Initialize map (always light mode)
+    const stationMap = L.map('stationMap').setView([station.latitude, station.longitude], 16);
+    
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(stationMap);
+    
+    // Add station marker
+    const totalBikes = station.nb_bike + station.nb_ebike;
+    const markerClass = totalBikes === 0 ? 'station-marker empty' : 
+                       (station.nb_free_dock + station.nb_free_edock) === 0 ? 'station-marker full' : 
+                       'station-marker';
+    
+    const icon = L.divIcon({
+        className: markerClass,
+        html: `<span>${totalBikes}</span>`,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20],
+        popupAnchor: [0, -20]
+    });
+    
+    L.marker([station.latitude, station.longitude], { icon })
+        .addTo(stationMap)
+        .bindPopup(`
+            <div style="text-align: center;">
+                <strong>${station.name}</strong><br>
+                <small>Code: ${station.code}</small><br>
+                Bikes: ${totalBikes} / ${station.total_capacity}
+            </div>
+        `);
+    
+    // Store map reference for theme switching
+    window.stationMap = stationMap;
+}
+
+// Load station details on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadStationDetails();
+});
+</script>
+{% endblock %}

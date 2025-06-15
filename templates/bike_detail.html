@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}Velib Tracker - Bike {{ bike_name }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="/">Home</a></li>
+                    <li class="breadcrumb-item"><a href="/bikes">Bikes</a></li>
+                    <li class="breadcrumb-item active">{{ bike_name }}</li>
+                </ol>
+            </nav>
+            
+            <h2>Bike {{ bike_name }}</h2>
+            
+            <div id="bikeDetails">
+                <p>Loading bike details...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const bikeName = '{{ bike_name }}';
+
+async function loadBikeDetails() {
+    try {
+        const response = await fetch(`/api/bikes/${bikeName}`);
+        const bike = await response.json();
+        
+        if (bike.error) {
+            document.getElementById('bikeDetails').innerHTML = 
+                `<div class="alert alert-danger">${bike.error}</div>`;
+            return;
+        }
+        
+        displayBikeDetails(bike);
+    } catch (error) {
+        console.error('Error loading bike details:', error);
+        document.getElementById('bikeDetails').innerHTML = 
+            '<div class="alert alert-danger">Error loading bike details</div>';
+    }
+}
+
+function displayBikeDetails(bike) {
+    const malfunctionBadges = bike.active_malfunctions.map(m => 
+        `<span class="malfunction-badge ${m.malfunction_type}">${m.malfunction_type}</span>`
+    ).join('');
+    
+    const html = `
+        <div class="row">
+            <div class="col-md-8">
+                <!-- Basic Info -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-bicycle"></i> Basic Information</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p><strong>Bike ID:</strong> ${bike.bike_name}</p>
+                                <p><strong>Type:</strong> ${bike.bike_electric ? 'Electric' : 'Mechanical'} 
+                                   ${bike.bike_electric ? '<i class="fas fa-bolt text-warning"></i>' : ''}</p>
+                                <p><strong>Status:</strong> 
+                                   <span class="badge bg-${bike.current_status === 'disponible' ? 'success' : 'warning'}">
+                                       ${bike.current_status}
+                                   </span>
+                                </p>
+                                <p><strong>Last Seen:</strong> ${bike.last_seen_at ? new Date(bike.last_seen_at).toLocaleString() : 'Unknown'}</p>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong>Total Trips:</strong> ${bike.total_trips}</p>
+                                <p><strong>Total Distance:</strong> ${bike.total_distance} km</p>
+                                <p><strong>Total Duration:</strong> ${formatDuration(bike.total_duration)}</p>
+                                <p><strong>Boomerangs:</strong> ${bike.boomerang_count}</p>
+                            </div>
+                        </div>
+                        
+                        ${bike.current_station ? `
+                            <div class="mt-3">
+                                <h6>Current Location:</h6>
+                                <p><strong>${bike.current_station.name}</strong> (${bike.current_station.code})</p>
+                            </div>
+                        ` : ''}
+                        
+                        ${bike.potential_malfunction ? `
+                            <div class="alert alert-warning mt-3">
+                                <h6><i class="fas fa-exclamation-triangle"></i> Potential Malfunction</h6>
+                                <p>Malfunction Score: ${bike.malfunction_score}/10</p>
+                                ${malfunctionBadges}
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+                
+                <!-- Recent Trips -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5><i class="fas fa-route"></i> Recent Trips</h5>
+                    </div>
+                    <div class="card-body">
+                        ${bike.recent_trips.length > 0 ? `
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>From</th>
+                                            <th>To</th>
+                                            <th>Duration</th>
+                                            <th>Distance</th>
+                                            <th>Speed</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${bike.recent_trips.map(trip => `
+                                            <tr class="${trip.is_boomerang ? 'table-warning' : ''}">
+                                                <td>${new Date(trip.start_time).toLocaleDateString()}</td>
+                                                <td>${trip.start_station_name || 'Unknown'}</td>
+                                                <td>${trip.end_station_name || 'Unknown'}</td>
+                                                <td>${formatDuration(trip.duration)}</td>
+                                                <td>${trip.distance ? trip.distance + ' km' : '-'}</td>
+                                                <td>${trip.avg_speed ? trip.avg_speed + ' km/h' : '-'}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ` : '<p>No recent trips found</p>'}
+                    </div>
+                </div>
+                
+                <!-- Malfunctions -->
+                ${bike.active_malfunctions.length > 0 ? `
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5><i class="fas fa-exclamation-triangle"></i> Active Malfunctions</h5>
+                        </div>
+                        <div class="card-body">
+                            ${bike.active_malfunctions.map(m => `
+                                <div class="alert alert-${m.severity >= 4 ? 'danger' : 'warning'} mb-2">
+                                    <strong>${m.malfunction_type}</strong> (Severity: ${m.severity}/5)<br>
+                                    <small>${m.description}</small><br>
+                                    <small class="text-muted">Detected: ${new Date(m.detected_at).toLocaleString()}</small>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+            
+            <!-- Statistics Sidebar -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-chart-bar"></i> 7-Day Statistics</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="stat-card mb-3">
+                            <h3>${bike.week_statistics.trip_count}</h3>
+                            <p>Trips</p>
+                        </div>
+                        <div class="stat-card mb-3">
+                            <h3>${bike.week_statistics.total_distance}</h3>
+                            <p>km Traveled</p>
+                        </div>
+                        <div class="stat-card mb-3">
+                            <h3>${formatDuration(bike.week_statistics.total_duration)}</h3>
+                            <p>Total Time</p>
+                        </div>
+                        <div class="stat-card">
+                            <h3>${bike.week_statistics.avg_speed}</h3>
+                            <p>km/h Avg Speed</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('bikeDetails').innerHTML = html;
+}
+
+function formatDuration(seconds) {
+    if (!seconds) return '0m';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    
+    if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
+}
+
+// Load bike details on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadBikeDetails();
+});
+</script>
+{% endblock %}

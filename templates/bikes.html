@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}Velib Tracker - Bikes{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <h2>Velib Bikes</h2>
+            
+            <!-- Filters -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5>Filters</h5>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <select class="form-select" id="statusFilter">
+                                <option value="">All Statuses</option>
+                                <option value="disponible">Available</option>
+                                <option value="indisponible">Unavailable</option>
+                                <option value="in_transit">In Transit</option>
+                                <option value="missing">Missing</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <select class="form-select" id="typeFilter">
+                                <option value="">All Types</option>
+                                <option value="true">Electric</option>
+                                <option value="false">Mechanical</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <select class="form-select" id="malfunctionFilter">
+                                <option value="">All Bikes</option>
+                                <option value="true">Malfunctioning Only</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-primary" onclick="loadBikes()">Apply Filters</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Bikes List -->
+            <div id="bikesList">
+                <p>Loading bikes...</p>
+            </div>
+            
+            <!-- Pagination -->
+            <nav id="pagination" style="display: none;">
+                <ul class="pagination justify-content-center">
+                </ul>
+            </nav>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let currentPage = 1;
+let totalPages = 1;
+
+async function loadBikes(page = 1) {
+    const status = document.getElementById('statusFilter').value;
+    const electric = document.getElementById('typeFilter').value;
+    const malfunction = document.getElementById('malfunctionFilter').value;
+    
+    let url = `/api/bikes?page=${page}&per_page=20`;
+    if (status) url += `&status=${status}`;
+    if (electric) url += `&electric=${electric}`;
+    if (malfunction) url += `&malfunction=${malfunction}`;
+    
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        displayBikes(data.bikes);
+        updatePagination(data.page, data.pages);
+        currentPage = data.page;
+        totalPages = data.pages;
+    } catch (error) {
+        console.error('Error loading bikes:', error);
+        document.getElementById('bikesList').innerHTML = '<p class="text-danger">Error loading bikes</p>';
+    }
+}
+
+let currentSort = { column: '', direction: 'asc' };
+let allBikes = [];
+
+function displayBikes(bikes) {
+    allBikes = bikes;
+    displayBikesGrid(bikes);
+}
+
+function displayBikesGrid(bikes) {
+    const container = document.getElementById('bikesList');
+    
+    if (bikes.length === 0) {
+        container.innerHTML = '<p>No bikes found</p>';
+        return;
+    }
+    
+    // Add sort controls
+    let html = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <strong>${bikes.length} bikes found</strong>
+            </div>
+            <div>
+                <label class="me-2">Sort by:</label>
+                <select class="form-select d-inline-block w-auto" id="sortSelect">
+                    <option value="">Default</option>
+                    <option value="bike_name">Bike ID</option>
+                    <option value="total_trips">Total Trips</option>
+                    <option value="total_distance">Distance</option>
+                    <option value="malfunction_score">Malfunction Score</option>
+                    <option value="current_status">Status</option>
+                </select>
+                <button class="btn btn-sm btn-outline-secondary ms-2" id="sortDirection">
+                    <i class="fas fa-sort-alpha-down"></i>
+                </button>
+            </div>
+        </div>
+        <div class="row">
+    `;
+    
+    bikes.forEach(bike => {
+        const statusClass = bike.potential_malfunction ? 'border-danger' : 
+                           bike.current_status === 'disponible' ? 'border-success' : 'border-warning';
+        
+        html += `
+            <div class="col-md-6 col-lg-4 mb-3">
+                <div class="card ${statusClass}">
+                    <div class="card-body">
+                        <h6 class="card-title">
+                            <i class="fas fa-bicycle"></i> 
+                            ${bike.bike_name}
+                            ${bike.bike_electric ? '<i class="fas fa-bolt text-warning ms-2"></i>' : ''}
+                        </h6>
+                        <p class="card-text">
+                            <strong>Status:</strong> ${bike.current_status}<br>
+                            <strong>Type:</strong> ${bike.bike_electric ? 'Electric' : 'Mechanical'}<br>
+                            <strong>Trips:</strong> ${bike.total_trips}<br>
+                            <strong>Distance:</strong> ${bike.total_distance} km
+                        </p>
+                        ${bike.potential_malfunction ? 
+                            `<span class="badge bg-danger mb-2">Malfunction Score: ${bike.malfunction_score}</span><br>` : ''}
+                        <a href="/bikes/${bike.bike_name}" class="btn btn-primary btn-sm">View Details</a>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div></div>';
+    container.innerHTML = html;
+    
+    // Add sort event listeners
+    addBikeSortListeners();
+}
+
+function addBikeSortListeners() {
+    const sortSelect = document.getElementById('sortSelect');
+    const sortDirection = document.getElementById('sortDirection');
+    
+    if (sortSelect) {
+        sortSelect.addEventListener('change', () => {
+            if (sortSelect.value) {
+                currentSort.column = sortSelect.value;
+                const sortedBikes = sortBikes(allBikes, currentSort.column, currentSort.direction);
+                displayBikesGrid(sortedBikes);
+            } else {
+                displayBikesGrid(allBikes);
+            }
+        });
+    }
+    
+    if (sortDirection) {
+        sortDirection.addEventListener('click', () => {
+            currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            const icon = sortDirection.querySelector('i');
+            icon.className = `fas fa-sort-alpha-${currentSort.direction === 'asc' ? 'down' : 'up'}`;
+            
+            if (currentSort.column) {
+                const sortedBikes = sortBikes(allBikes, currentSort.column, currentSort.direction);
+                displayBikesGrid(sortedBikes);
+            }
+        });
+    }
+}
+
+function sortBikes(bikes, sortBy, direction) {
+    return [...bikes].sort((a, b) => {
+        let aVal, bVal;
+        
+        switch (sortBy) {
+            case 'bike_name':
+                aVal = a.bike_name;
+                bVal = b.bike_name;
+                break;
+            case 'total_trips':
+                aVal = a.total_trips;
+                bVal = b.total_trips;
+                break;
+            case 'total_distance':
+                aVal = a.total_distance;
+                bVal = b.total_distance;
+                break;
+            case 'malfunction_score':
+                aVal = a.malfunction_score;
+                bVal = b.malfunction_score;
+                break;
+            case 'current_status':
+                aVal = a.current_status;
+                bVal = b.current_status;
+                break;
+            default:
+                return 0;
+        }
+        
+        if (typeof aVal === 'string') {
+            return direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        } else {
+            return direction === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+    });
+}
+
+function updatePagination(current, total) {
+    const nav = document.getElementById('pagination');
+    const ul = nav.querySelector('ul');
+    
+    if (total <= 1) {
+        nav.style.display = 'none';
+        return;
+    }
+    
+    nav.style.display = 'block';
+    
+    let html = '';
+    
+    // Previous button
+    html += `<li class="page-item ${current <= 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="loadBikes(${current - 1})">Previous</a>
+             </li>`;
+    
+    // Page numbers
+    for (let i = Math.max(1, current - 2); i <= Math.min(total, current + 2); i++) {
+        html += `<li class="page-item ${i === current ? 'active' : ''}">
+                    <a class="page-link" href="#" onclick="loadBikes(${i})">${i}</a>
+                 </li>`;
+    }
+    
+    // Next button
+    html += `<li class="page-item ${current >= total ? 'disabled' : ''}">
+                <a class="page-link" href="#" onclick="loadBikes(${current + 1})">Next</a>
+             </li>`;
+    
+    ul.innerHTML = html;
+}
+
+// Load bikes on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadBikes();
+});
+</script>
+{% endblock %}
