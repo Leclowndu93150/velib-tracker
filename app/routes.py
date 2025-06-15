@@ -38,6 +38,11 @@ def register_routes(app):
         """Velib Awards page"""
         return render_template('awards.html')
     
+    @app.route('/trips')
+    def trips():
+        """All trips view"""
+        return render_template('trips.html')
+    
     @app.route('/recovery')
     def recovery():
         """Data recovery page (development only)"""

@@ -4,6 +4,7 @@ from app.models import Bike, Trip, MalfunctionLog, BikeSnapshot, Station
 from app import db
 from datetime import datetime, timedelta
 from sqlalchemy import func, desc
+from sqlalchemy.orm import joinedload
 
 
 @api_bp.route('/bikes', methods=['GET'])
@@ -52,8 +53,9 @@ def get_bike(bike_name):
     if not bike:
         return jsonify({'error': 'Bike not found'}), 404
     
-    # Get recent trips
+    # Get recent trips with station relationships
     recent_trips = Trip.query.filter_by(bike_id=bike.id)\
+                            .options(joinedload(Trip.start_station), joinedload(Trip.end_station))\
                             .order_by(desc(Trip.start_time))\
                             .limit(20).all()
     

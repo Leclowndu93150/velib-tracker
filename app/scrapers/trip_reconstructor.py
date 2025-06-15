@@ -3,14 +3,16 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional
 from app import db
 from app.models import Trip, Bike, Station, StationState
+from geopy.distance import geodesic
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class TripReconstructor:
-    def __init__(self, max_trip_duration=10800):  # 3 hours max
+    def __init__(self, max_trip_duration=10800, min_trip_duration=120):  # 3 hours max, 2 minutes min
         self.max_trip_duration = max_trip_duration
+        self.min_trip_duration = min_trip_duration
         
     def reconstruct_trips(self):
         """Reconstruct trips from station state changes"""
@@ -92,12 +94,33 @@ class TripReconstructor:
                     departure_station_id = departures[bike_name]
                     arrival_station_id = int(station_id)
                     
+                    # The actual trip duration is simply: next_time - current_time
+                    # This represents when the bike disappeared vs when it reappeared
+                    duration = (next_time - current_time).total_seconds()
+                    
+                    # Calculate distance between stations for additional metrics
+                    start_station = Station.query.get(departure_station_id)
+                    end_station = Station.query.get(arrival_station_id)
+                    
+                    distance_km = 0
+                    if start_station and end_station:
+                        start_coords = (start_station.latitude, start_station.longitude)
+                        end_coords = (end_station.latitude, end_station.longitude)
+                        distance_km = geodesic(start_coords, end_coords).kilometers
+                    
+                    # Filter out obviously wrong data (very short trips between different stations)
+                    if departure_station_id != arrival_station_id and duration < self.min_trip_duration:
+                        logger.debug(f"Skipping suspiciously short trip for bike {bike_name}: {duration}s between different stations")
+                        continue
+                    
                     trips.append({
                         'bike_name': bike_name,
                         'start_station_id': departure_station_id,
                         'end_station_id': arrival_station_id,
                         'start_time': current_time,
-                        'end_time': next_time
+                        'end_time': next_time,
+                        'distance_km': distance_km,
+                        'actual_duration': duration
                     })
         
         return trips
@@ -140,9 +163,19 @@ class TripReconstructor:
         
         db.session.add(trip)
         
+        # Get station names for logging
+        start_station_name = trip.start_station.name if trip.start_station else "Unknown"
+        end_station_name = trip.end_station.name if trip.end_station else "Unknown"
+        
+        # Format precise timing for logging in Paris timezone
+        from app.utils.timezone import format_paris_time
+        start_time_str = format_paris_time(trip.start_time, '%H:%M:%S') if trip.start_time else "Unknown"
+        end_time_str = format_paris_time(trip.end_time, '%H:%M:%S') if trip.end_time else "Unknown"
+        duration_str = trip._format_duration(trip.duration) if hasattr(trip, '_format_duration') and trip.duration else f"{trip.duration}s"
+        
         logger.info(f"Created trip for bike {bike.bike_name}: "
-                   f"{trip.start_station_id} -> {trip.end_station_id}, "
-                   f"duration: {trip.duration}s, distance: {trip.distance}km")
+                   f"{start_station_name} ({start_time_str}) -> {end_station_name} ({end_time_str}), "
+                   f"duration: {duration_str}, distance: {trip.distance or 'None'}km")
     
     def _mark_processed(self, timestamp: datetime):
         """Mark timestamp as processed"""

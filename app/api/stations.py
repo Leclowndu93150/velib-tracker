@@ -4,6 +4,7 @@ from app.models import Station, Bike, BikeSnapshot, Trip
 from app import db
 from datetime import datetime, timedelta
 from sqlalchemy import func
+from app.utils.timezone import calculate_duration_since, format_duration, format_paris_time
 
 
 @api_bp.route('/stations', methods=['GET'])
@@ -23,8 +24,48 @@ def get_station(station_code):
     if not station:
         return jsonify({'error': 'Station not found'}), 404
     
-    # Get bikes currently at station
+    # Get bikes currently at station with enhanced info
     current_bikes = Bike.query.filter_by(current_station_id=station.id).all()
+    
+    # Enhance bike data with boomerang count and time at station
+    enhanced_bikes = []
+    for bike in current_bikes:
+        bike_dict = bike.to_dict()
+        
+        # Calculate time at this station using arrival time, not last seen
+        arrival_time = bike.arrived_at_station or bike.last_seen_at
+        if arrival_time:
+            time_at_station = calculate_duration_since(arrival_time)
+            time_at_station_str = format_duration(time_at_station)
+            since_time = format_paris_time(arrival_time, '%H:%M')
+                
+            bike_dict['time_at_station'] = {
+                'seconds': int(time_at_station.total_seconds()),
+                'formatted': time_at_station_str,
+                'since': since_time
+            }
+        else:
+            bike_dict['time_at_station'] = {
+                'seconds': 0,
+                'formatted': 'Unknown',
+                'since': None
+            }
+        
+        # Add boomerang count (already in bike.to_dict() but let's ensure it's there)
+        bike_dict['boomerang_count'] = bike.boomerang_count
+        
+        # Recent boomerangs at this station (last 24h)
+        recent_boomerangs = Trip.query.filter(
+            Trip.bike_id == bike.id,
+            Trip.start_station_id == station.id,
+            Trip.end_station_id == station.id,
+            Trip.is_boomerang == True,
+            Trip.start_time >= datetime.utcnow() - timedelta(hours=24)
+        ).count()
+        
+        bike_dict['recent_boomerangs_24h'] = recent_boomerangs
+        
+        enhanced_bikes.append(bike_dict)
     
     # Get station activity stats
     last_24h = datetime.utcnow() - timedelta(hours=24)
@@ -33,7 +74,7 @@ def get_station(station_code):
     
     response = station.to_dict()
     response.update({
-        'current_bikes': [bike.to_dict() for bike in current_bikes],
+        'current_bikes': enhanced_bikes,
         'activity_24h': {
             'departures': departures,
             'arrivals': arrivals,

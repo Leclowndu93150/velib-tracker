@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+
+{% block title %}Velib Tracker - All Trips{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row">
+        <div class="col-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="/">Home</a></li>
+                    <li class="breadcrumb-item active">All Trips</li>
+                </ol>
+            </nav>
+            
+            <h2><i class="fas fa-route"></i> All Trips</h2>
+            
+            <!-- Filters -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5><i class="fas fa-filter"></i> Filters</h5>
+                </div>
+                <div class="card-body">
+                    <form id="filtersForm" class="row g-3">
+                        <div class="col-md-3">
+                            <label for="timeRange" class="form-label">Time Range</label>
+                            <select class="form-select" id="timeRange">
+                                <option value="60">Last Hour</option>
+                                <option value="360">Last 6 Hours</option>
+                                <option value="1440" selected>Last 24 Hours</option>
+                                <option value="10080">Last Week</option>
+                                <option value="all">All Time</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="minDuration" class="form-label">Min Duration (minutes)</label>
+                            <input type="number" class="form-control" id="minDuration" value="2" min="0">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="maxDuration" class="form-label">Max Duration (hours)</label>
+                            <input type="number" class="form-control" id="maxDuration" value="3" min="0">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="boomerangOnly" class="form-label">Trip Type</label>
+                            <select class="form-select" id="boomerangOnly">
+                                <option value="">All Trips</option>
+                                <option value="true">Boomerangs Only</option>
+                                <option value="false">Normal Trips Only</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-search"></i> Apply Filters
+                            </button>
+                            <button type="button" class="btn btn-secondary" id="resetFilters">
+                                <i class="fas fa-undo"></i> Reset
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Results -->
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5><i class="fas fa-list"></i> Trips <span id="tripCount" class="badge bg-secondary">Loading...</span></h5>
+                    <div>
+                        <button class="btn btn-sm btn-outline-primary" id="refreshTrips">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="tripsTable">
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Pagination -->
+                    <nav id="pagination" class="mt-3" style="display: none;">
+                        <ul class="pagination justify-content-center">
+                            <!-- Pagination will be inserted here -->
+                        </ul>
+                    </nav>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let currentPage = 1;
+let totalPages = 1;
+let currentFilters = {};
+
+async function loadTrips(page = 1) {
+    const tripCount = document.getElementById('tripCount');
+    const tripsTable = document.getElementById('tripsTable');
+    
+    try {
+        // Build query parameters
+        const params = new URLSearchParams({
+            page: page,
+            per_page: 50
+        });
+        
+        // Add filters
+        const timeRange = document.getElementById('timeRange').value;
+        if (timeRange !== 'all') {
+            const cutoff = new Date();
+            cutoff.setMinutes(cutoff.getMinutes() - parseInt(timeRange));
+            params.append('start_date', cutoff.toISOString());
+        }
+        
+        const minDuration = document.getElementById('minDuration').value;
+        if (minDuration) {
+            params.append('min_duration', parseInt(minDuration) * 60); // Convert to seconds
+        }
+        
+        const maxDuration = document.getElementById('maxDuration').value;
+        if (maxDuration) {
+            params.append('max_duration', parseInt(maxDuration) * 3600); // Convert to seconds
+        }
+        
+        const boomerangOnly = document.getElementById('boomerangOnly').value;
+        if (boomerangOnly) {
+            params.append('boomerang_only', boomerangOnly);
+        }
+        
+        const response = await fetch(`/api/trips?${params}`);
+        const data = await response.json();
+        
+        tripCount.textContent = data.total;
+        currentPage = data.page;
+        totalPages = data.pages;
+        
+        displayTrips(data.trips);
+        updatePagination();
+        
+    } catch (error) {
+        console.error('Error loading trips:', error);
+        tripsTable.innerHTML = '<div class="alert alert-danger">Error loading trips</div>';
+    }
+}
+
+function displayTrips(trips) {
+    const tripsTable = document.getElementById('tripsTable');
+    
+    if (trips.length === 0) {
+        tripsTable.innerHTML = '<div class="alert alert-info">No trips found with current filters</div>';
+        return;
+    }
+    
+    const html = `
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>Date</th>
+                        <th>Bike</th>
+                        <th>Taken At</th>
+                        <th>From</th>
+                        <th>Returned At</th>
+                        <th>To</th>
+                        <th>Duration</th>
+                        <th>Distance</th>
+                        <th>Speed</th>
+                        <th>Type</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${trips.map(trip => `
+                        <tr class="${trip.is_boomerang ? 'table-warning' : ''}">
+                            <td>
+                                <small>${trip.start_date || new Date(trip.start_time).toLocaleDateString()}</small>
+                            </td>
+                            <td>
+                                <a href="/bikes/${trip.bike_name}" class="text-decoration-none">
+                                    <strong>${trip.bike_name}</strong>
+                                </a>
+                            </td>
+                            <td>
+                                <strong>${trip.start_time_formatted || new Date(trip.start_time).toLocaleTimeString()}</strong>
+                            </td>
+                            <td>
+                                <span class="text-primary">${trip.start_station_name || 'Unknown'}</span>
+                            </td>
+                            <td>
+                                <strong>${trip.end_time_formatted || new Date(trip.end_time).toLocaleTimeString()}</strong>
+                            </td>
+                            <td>
+                                <span class="text-success">${trip.end_station_name || 'Unknown'}</span>
+                            </td>
+                            <td>
+                                <span class="badge bg-info">${trip.duration_formatted || formatDuration(trip.duration)}</span>
+                            </td>
+                            <td>${trip.distance ? trip.distance + ' km' : '-'}</td>
+                            <td>${trip.avg_speed ? trip.avg_speed + ' km/h' : '-'}</td>
+                            <td>
+                                ${trip.is_boomerang ? '<span class="badge bg-warning">Boomerang</span>' : ''}
+                                ${trip.is_short_trip ? '<span class="badge bg-info">Short</span>' : ''}
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    tripsTable.innerHTML = html;
+}
+
+function updatePagination() {
+    const pagination = document.getElementById('pagination');
+    
+    if (totalPages <= 1) {
+        pagination.style.display = 'none';
+        return;
+    }
+    
+    pagination.style.display = 'block';
+    
+    let paginationHtml = '';
+    
+    // Previous button
+    paginationHtml += `
+        <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changePage(${currentPage - 1})">Previous</a>
+        </li>
+    `;
+    
+    // Page numbers
+    const startPage = Math.max(1, currentPage - 2);
+    const endPage = Math.min(totalPages, currentPage + 2);
+    
+    if (startPage > 1) {
+        paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="changePage(1)">1</a></li>`;
+        if (startPage > 2) {
+            paginationHtml += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+        }
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+        paginationHtml += `
+            <li class="page-item ${i === currentPage ? 'active' : ''}">
+                <a class="page-link" href="#" onclick="changePage(${i})">${i}</a>
+            </li>
+        `;
+    }
+    
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            paginationHtml += `<li class="page-item disabled"><span class="page-link">...</span></li>`;
+        }
+        paginationHtml += `<li class="page-item"><a class="page-link" href="#" onclick="changePage(${totalPages})">${totalPages}</a></li>`;
+    }
+    
+    // Next button
+    paginationHtml += `
+        <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changePage(${currentPage + 1})">Next</a>
+        </li>
+    `;
+    
+    pagination.querySelector('.pagination').innerHTML = paginationHtml;
+}
+
+function changePage(page) {
+    if (page >= 1 && page <= totalPages && page !== currentPage) {
+        loadTrips(page);
+    }
+}
+
+function formatDuration(seconds) {
+    if (!seconds) return '0m';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const remainingSeconds = seconds % 60;
+    
+    let parts = [];
+    if (hours > 0) parts.push(`${hours}h`);
+    if (minutes > 0) parts.push(`${minutes}m`);
+    if (remainingSeconds > 0 || parts.length === 0) parts.push(`${remainingSeconds}s`);
+    
+    return parts.join(' ');
+}
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', () => {
+    loadTrips();
+    
+    document.getElementById('filtersForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        currentPage = 1;
+        loadTrips();
+    });
+    
+    document.getElementById('resetFilters').addEventListener('click', () => {
+        document.getElementById('timeRange').value = '1440';
+        document.getElementById('minDuration').value = '2';
+        document.getElementById('maxDuration').value = '3';
+        document.getElementById('boomerangOnly').value = '';
+        currentPage = 1;
+        loadTrips();
+    });
+    
+    document.getElementById('refreshTrips').addEventListener('click', () => {
+        loadTrips(currentPage);
+    });
+});
+</script>
+{% endblock %}

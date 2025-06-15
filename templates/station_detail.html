@@ -169,7 +169,9 @@ function displayStationDetails(station) {
                                             <th>Bike ID</th>
                                             <th>Type</th>
                                             <th>Status</th>
-                                            <th>Trips</th>
+                                            <th>Boomerangs</th>
+                                            <th>Time Here</th>
+                                            <th>Total Trips</th>
                                             <th>Distance</th>
                                             <th>Actions</th>
                                         </tr>
@@ -177,18 +179,32 @@ function displayStationDetails(station) {
                                     <tbody>
                                         ${station.current_bikes.map(bike => `
                                             <tr class="${bike.potential_malfunction ? 'table-warning' : ''}">
-                                                <td>${bike.bike_name}</td>
+                                                <td>
+                                                    <strong>${bike.bike_name}</strong>
+                                                    ${bike.potential_malfunction ? 
+                                                        '<i class="fas fa-exclamation-triangle text-warning ms-1" title="Potential malfunction"></i>' : ''}
+                                                </td>
                                                 <td>
                                                     ${bike.bike_electric ? 
-                                                        '<span class="badge bg-success">Electric</span>' : 
+                                                        '<span class="badge bg-success"><i class="fas fa-bolt"></i> Electric</span>' : 
                                                         '<span class="badge bg-primary">Mechanical</span>'}
                                                 </td>
                                                 <td>
                                                     <span class="badge bg-${bike.current_status === 'disponible' ? 'success' : 'warning'}">
                                                         ${bike.current_status}
                                                     </span>
-                                                    ${bike.potential_malfunction ? 
-                                                        '<i class="fas fa-exclamation-triangle text-warning ms-1" title="Potential malfunction"></i>' : ''}
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-${bike.boomerang_count > 0 ? 'warning' : 'secondary'}">
+                                                        ${bike.boomerang_count} total
+                                                    </span>
+                                                    ${bike.recent_boomerangs_24h > 0 ? 
+                                                        `<br><small class="text-danger">${bike.recent_boomerangs_24h} in 24h</small>` : ''}
+                                                </td>
+                                                <td>
+                                                    <strong>${bike.time_at_station ? bike.time_at_station.formatted : 'Unknown'}</strong>
+                                                    ${bike.time_at_station && bike.time_at_station.since ? 
+                                                        `<br><small class="text-muted">since ${bike.time_at_station.since}</small>` : ''}
                                                 </td>
                                                 <td>${bike.total_trips}</td>
                                                 <td>${bike.total_distance} km</td>

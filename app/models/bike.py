@@ -14,6 +14,11 @@ class Bike(db.Model):
     current_status = db.Column(db.String(20), default='unknown')  # disponible, indisponible, in_transit, missing
     last_seen_at = db.Column(db.DateTime, default=datetime.utcnow)
     
+    # Precise tracking for trip calculation
+    arrived_at_station = db.Column(db.DateTime)  # When bike arrived at current station
+    left_station_at = db.Column(db.DateTime)  # When bike left previous station
+    previous_station_id = db.Column(db.Integer, db.ForeignKey('stations.id'))  # Previous station
+    
     # Statistics
     total_trips = db.Column(db.Integer, default=0)
     total_distance = db.Column(db.Float, default=0)
@@ -32,6 +37,7 @@ class Bike(db.Model):
     trips = db.relationship('Trip', backref='bike', lazy='dynamic')
     malfunctions = db.relationship('MalfunctionLog', backref='bike', lazy='dynamic')
     current_station = db.relationship('Station', foreign_keys=[current_station_id])
+    previous_station = db.relationship('Station', foreign_keys=[previous_station_id])
     
     def to_dict(self):
         return {

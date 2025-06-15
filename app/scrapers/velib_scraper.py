@@ -4,7 +4,10 @@ import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Set
 from app import db
-from app.models import Station, Bike, BikeSnapshot, StationState
+from app.models import Station, Bike, BikeSnapshot, StationState, Trip
+from app.models.bike_movement import BikeMovement
+from geopy.distance import geodesic
+from app.utils.timezone import get_paris_time
 import logging
 
 logger = logging.getLogger(__name__)
@@ -43,7 +46,8 @@ class VelibScraper:
     
     def update_stations_and_bikes(self, station_data_list: List[Dict]):
         """Update stations and bikes with differential updates"""
-        timestamp = datetime.utcnow()
+        # Use Paris time for everything
+        timestamp = get_paris_time()
         
         # Track bikes seen in this update
         seen_bike_ids = set()
@@ -53,19 +57,27 @@ class VelibScraper:
             station_info = data['station']
             station_code = station_info['code']
             
-            # Update or create station
+            # Update or create station with error handling
             station = Station.query.filter_by(code=station_code).first()
             if not station:
-                station = Station(
-                    code=station_code,
-                    name=station_info['name'],
-                    latitude=station_info['gps']['latitude'],
-                    longitude=station_info['gps']['longitude'],
-                    station_type=station_info.get('stationType', 'PUBLIC'),
-                    state=station_info.get('state', 'Operative')
-                )
-                db.session.add(station)
-                db.session.flush()  # Get station ID
+                try:
+                    station = Station(
+                        code=station_code,
+                        name=station_info['name'],
+                        latitude=station_info['gps']['latitude'],
+                        longitude=station_info['gps']['longitude'],
+                        station_type=station_info.get('stationType', 'PUBLIC'),
+                        state=station_info.get('state', 'Operative')
+                    )
+                    db.session.add(station)
+                    db.session.flush()  # Get station ID
+                except Exception as e:
+                    # Station might have been created by another process
+                    db.session.rollback()
+                    station = Station.query.filter_by(code=station_code).first()
+                    if not station:
+                        logger.error(f"Failed to create or find station {station_code}: {e}")
+                        continue
             
             # Update station metrics
             station.nb_bike = data.get('nbBike', 0)
@@ -100,12 +112,59 @@ class VelibScraper:
                 current_bike_rate = bike_data.get('bikeRate')
                 
                 needs_snapshot = False
+                station_changed = False
                 
                 # Check if this is a new bike or if critical data has changed
                 if (bike.current_station_id != station.id or 
                     bike.current_status != current_bike_status or
                     abs((timestamp - bike.last_seen_at).total_seconds()) > 3600):  # Also snapshot every hour as backup
                     needs_snapshot = True
+                
+                # Track precise bike movements
+                if bike.current_station_id != station.id:
+                    station_changed = True
+                    
+                    # If bike was at a different station, record departure from old station
+                    if bike.current_station_id is not None:
+                        departure = BikeMovement(
+                            bike_id=bike.id,
+                            event_type='departed',
+                            station_id=bike.current_station_id,
+                            timestamp=bike.left_station_at or timestamp,  # Use precise time if available
+                            bike_status=bike.current_status
+                        )
+                        db.session.add(departure)
+                        bike.left_station_at = timestamp
+                        bike.previous_station_id = bike.current_station_id
+                    
+                    # Record arrival at new station
+                    arrival = BikeMovement(
+                        bike_id=bike.id,
+                        event_type='arrived',
+                        station_id=station.id,
+                        timestamp=timestamp,
+                        dock_position=current_dock_position,
+                        bike_status=current_bike_status
+                    )
+                    db.session.add(arrival)
+                    bike.arrived_at_station = timestamp
+                    
+                    # Create trip if we have both departure and arrival
+                    if bike.previous_station_id and bike.left_station_at:
+                        self._create_trip_from_movement(bike, timestamp)
+                
+                elif bike.arrived_at_station is None:
+                    # Handle initial state - bike was already at station when we started tracking
+                    bike.arrived_at_station = timestamp
+                    arrival = BikeMovement(
+                        bike_id=bike.id,
+                        event_type='arrived',
+                        station_id=station.id,
+                        timestamp=timestamp,
+                        dock_position=current_dock_position,
+                        bike_status=current_bike_status
+                    )
+                    db.session.add(arrival)
                 
                 # Update bike current status
                 bike.current_station_id = station.id
@@ -171,6 +230,51 @@ class VelibScraper:
             db.session.add(state)
         
         db.session.commit()
+    
+    def _create_trip_from_movement(self, bike: Bike, arrival_time: datetime):
+        """Create a trip record from precise movement data"""
+        if not bike.previous_station_id or not bike.left_station_at:
+            return
+        
+        # Check if trip already exists
+        existing_trip = Trip.query.filter_by(
+            bike_id=bike.id,
+            start_station_id=bike.previous_station_id,
+            end_station_id=bike.current_station_id,
+            start_time=bike.left_station_at,
+            end_time=arrival_time
+        ).first()
+        
+        if existing_trip:
+            return
+        
+        # Create new trip with precise timing
+        trip = Trip(
+            bike_id=bike.id,
+            start_station_id=bike.previous_station_id,
+            end_station_id=bike.current_station_id,
+            start_time=bike.left_station_at,
+            end_time=arrival_time
+        )
+        
+        # Calculate metrics using the Trip model's method
+        trip.calculate_metrics()
+        
+        # Update bike statistics
+        bike.total_trips += 1
+        if trip.distance:
+            bike.total_distance += trip.distance
+        if trip.duration:
+            bike.total_duration += trip.duration
+        if trip.is_boomerang:
+            bike.boomerang_count += 1
+        
+        db.session.add(trip)
+        
+        logger.info(f"Created precise trip for bike {bike.bike_name}: "
+                   f"{trip.start_station.name if trip.start_station else 'Unknown'} -> "
+                   f"{trip.end_station.name if trip.end_station else 'Unknown'}, "
+                   f"duration: {trip.duration}s, distance: {trip.distance:.2f if trip.distance else 0}km")
     
     def run_update(self):
         """Main update method to be called periodically"""

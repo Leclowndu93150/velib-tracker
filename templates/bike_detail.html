@@ -110,7 +110,9 @@ function displayBikeDetails(bike) {
                                     <thead>
                                         <tr>
                                             <th>Date</th>
+                                            <th>Taken At</th>
                                             <th>From</th>
+                                            <th>Returned At</th>
                                             <th>To</th>
                                             <th>Duration</th>
                                             <th>Distance</th>
@@ -120,10 +122,24 @@ function displayBikeDetails(bike) {
                                     <tbody>
                                         ${bike.recent_trips.map(trip => `
                                             <tr class="${trip.is_boomerang ? 'table-warning' : ''}">
-                                                <td>${new Date(trip.start_time).toLocaleDateString()}</td>
-                                                <td>${trip.start_station_name || 'Unknown'}</td>
-                                                <td>${trip.end_station_name || 'Unknown'}</td>
-                                                <td>${formatDuration(trip.duration)}</td>
+                                                <td>
+                                                    <small>${trip.start_date || new Date(trip.start_time).toLocaleDateString()}</small>
+                                                </td>
+                                                <td>
+                                                    <strong>${trip.start_time_formatted || new Date(trip.start_time).toLocaleTimeString()}</strong>
+                                                </td>
+                                                <td>
+                                                    <span class="text-primary">${trip.start_station_name || 'Unknown'}</span>
+                                                </td>
+                                                <td>
+                                                    <strong>${trip.end_time_formatted || new Date(trip.end_time).toLocaleTimeString()}</strong>
+                                                </td>
+                                                <td>
+                                                    <span class="text-success">${trip.end_station_name || 'Unknown'}</span>
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-info">${trip.duration_formatted || formatDuration(trip.duration)}</span>
+                                                </td>
                                                 <td>${trip.distance ? trip.distance + ' km' : '-'}</td>
                                                 <td>${trip.avg_speed ? trip.avg_speed + ' km/h' : '-'}</td>
                                             </tr>

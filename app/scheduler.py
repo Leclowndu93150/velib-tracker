@@ -1,5 +1,6 @@
 from apscheduler.schedulers.background import BackgroundScheduler
-from app.scrapers import VelibScraper, TripReconstructor
+from app.scrapers import VelibScraper
+from app.scrapers.movement_trip_detector import MovementTripDetector
 from app.utils import MalfunctionDetector
 from app.utils.data_recovery import DataRecovery
 from app.queue_manager import db_queue, queued_db_operation
@@ -29,15 +30,15 @@ def scrape_velib_data():
 
 
 @queued_db_operation
-def reconstruct_trips():
-    """Reconstruct trips from station state changes - queued to prevent database locks"""
+def detect_trips_from_movements():
+    """Detect trips from precise bike movements - queued to prevent database locks"""
     try:
-        reconstructor = TripReconstructor()
-        reconstructor.reconstruct_trips()
-        logger.info("Successfully reconstructed trips")
+        detector = MovementTripDetector()
+        trips_created = detector.detect_trips_from_movements()
+        logger.info(f"Successfully detected {trips_created} trips from movements")
         return True
     except Exception as e:
-        logger.error(f"Error in trip reconstruction: {e}")
+        logger.error(f"Error in movement-based trip detection: {e}")
         raise
 
 
@@ -90,13 +91,13 @@ def start_scheduler(app):
             replace_existing=True
         )
         
-        # Reconstruct trips every 5 minutes
+        # Detect trips from movements every 2 minutes
         scheduler.add_job(
-            func=reconstruct_trips,
+            func=detect_trips_from_movements,
             trigger="interval",
-            minutes=5,
-            id='reconstruct_trips',
-            name='Reconstruct trips',
+            minutes=2,
+            id='detect_trips',
+            name='Detect trips from movements',
             replace_existing=True
         )
         
@@ -125,6 +126,9 @@ def start_scheduler(app):
         
         # Run initial scrape
         scrape_velib_data()
+        
+        # Run initial trip detection
+        detect_trips_from_movements()
 
 
 def shutdown_scheduler():

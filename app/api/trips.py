@@ -4,6 +4,8 @@ from app.models import Trip, Bike, Station
 from app import db
 from datetime import datetime, timedelta
 from sqlalchemy import func, desc
+from sqlalchemy.orm import joinedload
+from app.utils.timezone import format_paris_time
 
 
 @api_bp.route('/trips', methods=['GET'])
@@ -169,4 +171,40 @@ def get_popular_routes():
         'routes': routes,
         'hours': hours,
         'total': len(routes)
+    })
+
+
+@api_bp.route('/trips/recent-with-timing', methods=['GET'])
+def get_recent_trips_with_timing():
+    """Get recent trips with precise timing information for monitoring"""
+    limit = request.args.get('limit', 10, type=int)
+    minutes = request.args.get('minutes', 60, type=int)  # Default: last hour
+    
+    cutoff = datetime.utcnow() - timedelta(minutes=minutes)
+    
+    recent_trips = Trip.query\
+        .options(joinedload(Trip.start_station), joinedload(Trip.end_station), joinedload(Trip.bike))\
+        .filter(Trip.start_time >= cutoff)\
+        .order_by(desc(Trip.start_time))\
+        .limit(limit).all()
+    
+    trips_with_timing = []
+    for trip in recent_trips:
+        trip_info = trip.to_dict()
+        trip_info.update({
+            'bike_name': trip.bike.bike_name if trip.bike else None,
+            'precise_timing': trip.get_precise_timing(),
+            'minute_precision': {
+                'taken_minute': trip.start_time.strftime('%Y-%m-%d %H:%M') if trip.start_time else None,
+                'returned_minute': trip.end_time.strftime('%Y-%m-%d %H:%M') if trip.end_time else None,
+                'exact_duration_minutes': round(trip.duration / 60, 2) if trip.duration else None
+            }
+        })
+        trips_with_timing.append(trip_info)
+    
+    return jsonify({
+        'trips': trips_with_timing,
+        'total': len(trips_with_timing),
+        'timeframe_minutes': minutes,
+        'data_precision': 'Minute-level precision from scraper timestamps'
     })

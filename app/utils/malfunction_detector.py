@@ -140,6 +140,9 @@ class MalfunctionDetector:
         """Detect bikes that haven't moved from a station"""
         cutoff_date = datetime.utcnow() - timedelta(days=self.stuck_days_threshold)
         
+        # Only check bikes that have been tracked for at least the threshold period
+        bike_creation_cutoff = datetime.utcnow() - timedelta(days=self.stuck_days_threshold + 1)
+        
         # Find bikes with no trips in the last week
         bikes_with_recent_trips = db.session.query(Trip.bike_id).filter(
             Trip.start_time >= cutoff_date
@@ -148,7 +151,8 @@ class MalfunctionDetector:
         stuck_bikes = Bike.query.filter(
             Bike.current_station_id.isnot(None),
             Bike.id.notin_(bikes_with_recent_trips),
-            Bike.last_seen_at >= cutoff_date  # Still being seen at station
+            Bike.last_seen_at >= cutoff_date,  # Still being seen at station
+            Bike.created_at <= bike_creation_cutoff  # Only bikes we've been tracking long enough
         ).all()
         
         for bike in stuck_bikes:
@@ -159,11 +163,14 @@ class MalfunctionDetector:
             ).first()
             
             if not existing:
+                # Calculate actual days since last movement
+                days_stuck = (datetime.utcnow() - bike.last_seen_at).days
+                
                 malfunction = MalfunctionLog(
                     bike_id=bike.id,
                     malfunction_type='stuck',
                     severity=2,
-                    description=f"Bike hasn't moved from station in {self.stuck_days_threshold} days",
+                    description=f"Bike hasn't moved from station in {days_stuck} days",
                     station_id=bike.current_station_id
                 )
                 db.session.add(malfunction)
